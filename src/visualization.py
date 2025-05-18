@@ -86,10 +86,15 @@ def interactive_plot(volume_seq, title="", cmap='grey', show=True, windowing_par
     plt.ion()  # Turn on interactive mode
     fig, ax = plt.subplots()
     plt.subplots_adjust(left=0.25, bottom=0.25)
+    
     if windowing_params is not None:
-        image = ax.imshow(apply_window(volume_seq[0, 0], *windowing_params), cmap=cmap)
+        # Getting intensity interval from windowing params
+        vmin, vmax = windowing_params[0] - windowing_params[1] / 2, windowing_params[0] + windowing_params[1] / 2
+        image = ax.imshow(apply_window(volume_seq[0, volume_seq.shape[1]//2], *windowing_params), cmap=cmap, vmin=vmin, vmax=vmax)
     else:
-        image = ax.imshow(volume_seq[0, 0], cmap=cmap)
+        vmin = np.min(volume_seq)
+        vmax = np.max(volume_seq) 
+        image = ax.imshow(volume_seq[0, 0], cmap=cmap, vmin=vmin, vmax=vmax)
     plt.title(title)
 
     ax_slice_slider = plt.axes([0.25, 0.15, 0.65, 0.03])

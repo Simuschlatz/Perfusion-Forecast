@@ -11,6 +11,7 @@ import SimpleITK as sitk
 from concurrent.futures import ProcessPoolExecutor
 from time import time
 import json
+import nibabel as nib
 
 dataset_path = os.path.expanduser('~/Desktop/UniToBrain')
 
@@ -190,18 +191,18 @@ def get_3d_mask(volume: np.ndarray,
     Returns:
     - numpy.ndarray: A 3D binary mask of the brain.
     """
-    downsampling_factor = 512 // volume.shape[1]
+    # downsampling_factor = 512 // volume.shape[1]
 
-    if not morphology_shape_2d[1] // downsampling_factor:
-        print(f"Warning: Heavy downsampling detected ({downsampling_factor}x), morphology shape will be set to (1, 1)")
-        morphology_shape_2d = (1, 1)
+    # if not morphology_shape_2d[1] // downsampling_factor:
+    #     print(f"Warning: Heavy downsampling detected ({downsampling_factor}x), morphology shape will be set to (1, 1)")
+    #     morphology_shape_2d = (1, 1)
 
-    elif downsampling_factor > 1:
-        morphology_shape_2d = (1, max(2, morphology_shape_2d[1] // downsampling_factor))
-        if verbose:
-            print(f"Info: Downsampling detected ({downsampling_factor}x), adjusting morphology_shape_2d from {morphology_shape_2d} to {(1, max(2, morphology_shape_2d[1] // downsampling_factor))}")
-            print(f"Info: Downsampling detected ({downsampling_factor}x), adjusting remove_small_objects_size from {remove_small_objects_size} to {remove_small_objects_size // downsampling_factor**2}")
-        remove_small_objects_size = remove_small_objects_size // downsampling_factor**2
+    # elif downsampling_factor > 1:
+    #     morphology_shape_2d = (1, max(2, morphology_shape_2d[1] // downsampling_factor))
+    #     if verbose:
+    #         print(f"Info: Downsampling detected ({downsampling_factor}x), adjusting morphology_shape_2d from {morphology_shape_2d} to {(1, max(2, morphology_shape_2d[1] // downsampling_factor))}")
+    #         print(f"Info: Downsampling detected ({downsampling_factor}x), adjusting remove_small_objects_size from {remove_small_objects_size} to {remove_small_objects_size // downsampling_factor**2}")
+    #     remove_small_objects_size = remove_small_objects_size // downsampling_factor**2
 
     volume_mask = np.array([get_2d_mask(s, 
                                         threshold_min=threshold_min, threshold_max=threshold_max, 
@@ -874,7 +875,21 @@ def get_volume(folder_path,
             volume_seq = (volume_seq - np.mean(volume_seq)) / np.std(volume_seq)
     return volume_seq
 
-def preprocess_CTP(volume_seq: np.ndarray, 
+
+# ------------------ Nifti Scan Functions ------------------
+def load_nii_scan(file_path: str) -> np.ndarray:
+    nii = nib.load(file_path)
+    scan = nii.get_fdata()
+    scan = scan.transpose((3, 2, 0, 1))
+    scan = np.rot90(scan, k=1, axes=(2, 3))
+    return scan
+
+def save_nii_scan(volume: np.ndarray, file_path: str):
+    nii = nib.Nifti1Image(volume, np.eye(4))
+    nib.save(nii, file_path)
+
+# ----------------------------------------------------------
+def preprocess_scan(volume_seq: np.ndarray, 
                window_params: tuple|str|None=(200, 400), 
                filter=True,
                extract_brain=True,
