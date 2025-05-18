@@ -635,7 +635,10 @@ def interactive_plot_with_3d_mask(volume_seq, title="", show=True,
                                  initial_conn_y=3, initial_conn_x=3, initial_conn_z=3,
                                  apply_window=True,
                                  cmap='grey'):
-    """Like interactive_plot_with_mask but uses get_3d_mask with adjustable 3D morphology and connectivity parameters"""
+    """
+    Like interactive_plot_with_mask but uses get_3d_mask with adjustable 3D morphology and connectivity parameters
+    NOTE: still a little buggy, mask somehow resets after slice/ time change
+    """
     plt.ion()  # Turn on interactive mode
     
     # Create figure with space for colorbars below
@@ -667,7 +670,8 @@ def interactive_plot_with_3d_mask(volume_seq, title="", show=True,
                            remove_small_objects_size=initial_min_objects,
                            morphology_shape_2d=(1, 7),
                            morphology_shape_3d=(initial_morph_y, initial_morph_x, initial_morph_z),
-                           connectivity_shape_3d=(initial_conn_y, initial_conn_x, initial_conn_z))
+                           connectivity_shape_3d=(initial_conn_y, initial_conn_x, initial_conn_z),
+                           verbose=True, adaptive=False)
                         for t in range(volume_seq.shape[0])]
     
     binary_cmap = ListedColormap(['black', 'white'])
@@ -753,10 +757,12 @@ def interactive_plot_with_3d_mask(volume_seq, title="", show=True,
                                threshold_min=thresh_min_slider.val,
                                threshold_max=thresh_max_slider.val,
                                remove_small_objects_size=int(min_objects_slider.val),
-                               morphology_shape_2d=(3, 3),
+                               morphology_shape_2d=(1, 7),
                                morphology_shape_3d=(int(morph_y_slider.val),
                                                   int(morph_x_slider.val),
-                                                  int(morph_z_slider.val)))
+                                                  int(morph_z_slider.val)),
+                                adaptive=False,
+                                verbose=True)
                         for t in range(volume_seq.shape[0])]
         current_mask = volume_masks[int(time_slider.val)]
         # Update masked image

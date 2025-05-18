@@ -6,13 +6,27 @@ import pickle
 import matplotlib.pyplot as plt
 import json
 
+# ------------------ Nifti Scan Functions ------------------
+def load_nii_scan(file_path: str) -> np.ndarray:
+    nii = nib.load(file_path)
+    scan = nii.get_fdata()
+    scan = scan.transpose((3, 2, 0, 1))
+    scan = np.rot90(scan, k=1, axes=(2, 3))
+    return scan
+
+def save_nii_scan(volume: np.ndarray, file_path: str):
+    nii = nib.Nifti1Image(volume, np.eye(4))
+    nib.save(nii, file_path)
+
+# ----------------------------------------------------------
+
 def preprocess_scan(volume_seq: np.ndarray, 
                window_params: tuple|str|None=(200, 400), 
                filter=True,
                extract_brain=True,
                standardize=True,
                correct_motion=True,
-               reference_index=0,
+               reference_index=3,
                slice_based=False,
                verbose=True) -> np.ndarray:
     """
@@ -32,7 +46,7 @@ def preprocess_scan(volume_seq: np.ndarray,
     """
 
     if extract_brain: # Calculate single brain mask for all volumes before windowing
-        volume_mask = get_3d_mask(volume_seq[reference_index], threshold_min=-21, morphology_shape_3d=(3, 3, 5))
+        volume_mask = get_3d_mask(volume_seq[reference_index], threshold_min=-10, threshold_max=120,morphology_shape_3d=(3, 3, 3), morphology_shape_2d=(3, 5), adaptive=False)
 
     if window_params is not None:
         if type(window_params) == str:
@@ -68,6 +82,10 @@ if __name__ == "__main__":
     for path in paths[3:]:
         v = load_nii_scan(path)
         # interactive_plot_with_threshold(v) # --> The value range is not the typical HU range. Instead [-23, 1200+]
+        # Calculate step size to get exactly 18 volumes
+        total_volumes = v.shape[0]
+        # Sample indices to get exactly 18 volumes
+        indices = np.linspace(0, total_volumes - 1, 18, dtype=int)
         # interactive_plot_with_3d_mask(v[:1], threshold_min=-21)
-        preprocessed = preprocess_scan(v[::10])
+        preprocessed = preprocess_scan(v[indices], correct_motion=False)
         interactive_plot(preprocessed, windowing_params=(40, 80))
