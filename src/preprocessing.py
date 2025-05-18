@@ -935,8 +935,8 @@ def preprocess_scan(volume_seq: np.ndarray,
     return volume_seq
 
 def save_volume(volume, file_path: str="volume.npy", verbose=True):
-    # if not os.path.exists(folder_path):
-    #     os.makedirs(folder_path)
+    if not os.path.exists(os.path.dirname(file_path)):
+        os.makedirs(os.path.dirname(file_path))
     np.save(file_path, volume)
     if verbose:
         print(f"Volume saved to {file_path}")

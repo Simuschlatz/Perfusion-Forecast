@@ -77,15 +77,52 @@ def preprocess_scan(volume_seq: np.ndarray,
 
 if __name__ == "__main__":
     
+    save_path = f'Experiments/ISLES_PreprocessedData'
+
+        
     with open('selected_paths.json', 'r') as f:
         paths = json.load(f)
     for path in paths[3:]:
-        v = load_nii_scan(path)
-        # interactive_plot_with_threshold(v) # --> The value range is not the typical HU range. Instead [-23, 1200+]
-        # Calculate step size to get exactly 18 volumes
-        total_volumes = v.shape[0]
-        # Sample indices to get exactly 18 volumes
-        indices = np.linspace(0, total_volumes - 1, 18, dtype=int)
-        # interactive_plot_with_3d_mask(v[:1], threshold_min=-21)
-        preprocessed = preprocess_scan(v[indices], correct_motion=False)
-        interactive_plot(preprocessed, windowing_params=(40, 80))
+        # v = load_nii_scan(path)
+        nii = nib.load(path)
+        hdr = nii.header
+
+        # if hdr.get('dim')[3] != 22:
+        #     continue
+
+        scan = nii.get_fdata().astype('float32')
+        scan = scan.transpose((3, 2, 0, 1))
+
+        v = np.rot90(scan, k=1, axes=(2, 3))
+        T = v.shape[0]
+
+        # Uniformly (integer precisions) subsample along time axis to get 18 volumes
+        # indices = np.linspace(0, T - 1, 18, dtype=int)
+        
+        # Acutally uniformly subsample along time axis to get 18 volumes
+        step = T // 18
+        t = step * 18
+        pad = (T - t) // 2
+        # print(f"T: {T}, step: {step}, t: {t}, pad: {pad}")
+        indices = np.arange(1, t + 1, step, dtype=int)
+        # print(f"{indices=}")
+
+        preprocessed = preprocess_scan(v[indices], verbose=False)
+
+        if v.shape[1] == 22:
+            for i in range(2, v.shape[1]-16):
+                sub = preprocessed[:, i:i+16, :, :]
+                # interactive_plot(sub, windowing_params=(40, 80))
+                save_volume(sub, os.path.join(save_path, path.split('/')[-3] + f'_{i}.npy'))
+        else:
+            save_volume(preprocessed, os.path.join(save_path, path.split('/')[-3] + '.npy'))
+            # interactive_plot_with_threshold(v) # --> The value range is not the typical HU range. Instead [-23, 1200+]
+            # Calculate step size to get exactly 18 volumes
+            # Sample indices to get exactly 18 volumes
+            # interactive_plot_with_3d_mask(v[:1], threshold_min=-21)
+            # interactive_plot(preprocessed, windowing_params=(40, 80))
+
+    # for path in os.listdir(save_path):
+    #     v = np.load(os.path.join(save_path, path)).astype('float32')
+    #     print(v.dtype)
+    #     np.save(os.path.join(save_path, path), v)

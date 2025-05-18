@@ -90,7 +90,7 @@ def interactive_plot(volume_seq, title="", cmap='grey', show=True, windowing_par
     if windowing_params is not None:
         # Getting intensity interval from windowing params
         vmin, vmax = windowing_params[0] - windowing_params[1] / 2, windowing_params[0] + windowing_params[1] / 2
-        image = ax.imshow(apply_window(volume_seq[0, volume_seq.shape[1]//2], *windowing_params), cmap=cmap, vmin=vmin, vmax=vmax)
+        image = ax.imshow(apply_window(volume_seq[0, 0], *windowing_params), cmap=cmap, vmin=vmin, vmax=vmax)
     else:
         vmin = np.min(volume_seq)
         vmax = np.max(volume_seq) 
@@ -198,9 +198,11 @@ def interactive_plot_cycle_from_folder(data_folder="Experiments/Data", windowing
     plt.subplots_adjust(left=0.25, bottom=0.25)
     if windowing_params is not None:
         img_data = apply_window(current_volume[0, 0], *windowing_params)
+        vmin, vmax = windowing_params[0] - windowing_params[1] / 2, windowing_params[0] + windowing_params[1] / 2
     else:
         img_data = current_volume[0, 0]
-    image = ax.imshow(img_data, cmap=cmap)
+        vmin, vmax = np.min(current_volume), np.max(current_volume)
+    image = ax.imshow(img_data, cmap=cmap, vmin=vmin, vmax=vmax)
     ax.set_title(current_title)
     plt.colorbar(image, ax=ax)
 
