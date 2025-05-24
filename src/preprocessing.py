@@ -784,10 +784,21 @@ def rigid_register_volume_sequence(volume_seq: np.ndarray,
         print("All registrations completed.")
     return registered_seq
 
+def center_crop_4d_thwc(volume, target_h=256, target_w=256):
+    """Center crop for 4D volumes with shape (Time, Depth, Height, Width)"""
+    t, d, curr_h, curr_w= volume.shape
+    
+    # Calculate starting indices for the crop
+    start_h = max(0, (curr_h - target_h) // 2)
+    start_w = max(0, (curr_w - target_w) // 2)
+    
+    # Perform the center crop
+    return volume[:, :, start_h:start_h+target_h, start_w:start_w+target_w]
+
+
 def symmetric_centering(
     volume_seq: np.ndarray,
     num_reference_slices: int = 3,
-    default_pixel_value: float = 0.0,
     max_step = 4.0,
     relaxation_factor = 0.5,
     shrink_factors = [4, 1],
@@ -805,7 +816,7 @@ def symmetric_centering(
 
     T, D, H_dim, W_dim = volume_seq.shape
     symmetrized_volume_seq = np.copy(volume_seq)
-    typed_default_pixel_value = volume_seq.dtype.type(default_pixel_value)
+    typed_default_pixel_value = np.min(volume_seq)
     # start = D - D // 3
     # end = min(start + num_reference_slices, D)
     proj_slice = np.sum(volume_seq[0], axis=0)

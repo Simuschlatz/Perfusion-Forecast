@@ -35,7 +35,7 @@ def render_volume_slices(volume, cmap='grey', n_rows=None, ax_size=4, v_min=None
     cols = int(np.ceil(depth / rows))
     figsize = (cols * ax_size, rows * ax_size)
     fig, axes = plt.subplots(rows, cols, figsize=figsize)
-    fig.subplots_adjust(wspace=0, hspace=0)
+    # Removed fig.subplots_adjust(wspace=0, hspace=0) from here
     if v_min is None:
         v_min = np.min(volume)
     if v_max is None:
@@ -43,12 +43,15 @@ def render_volume_slices(volume, cmap='grey', n_rows=None, ax_size=4, v_min=None
     for i, ax in enumerate(axes.flat):
         if i < depth:
             ax.imshow(volume[i], cmap=cmap, aspect='equal', vmin=v_min, vmax=v_max)
-        ax.axis('off')
+        ax.axis('off')  # This removes axis ticks and labels
     
     plt.tight_layout()
+    # Ensure no spacing between subplots after tight_layout adjustment
+    fig.subplots_adjust(wspace=0, hspace=0) 
     fig.patch.set_facecolor('black')
     plt.show(block=True)
     return fig, axes
+
 def scroll_through_all_slices(volume_seq: np.ndarray, title="", show=True, cmap='grey'):
     t, y, z, x = volume_seq.shape
     # Reshape the 4D volume sequence into a 3D array
