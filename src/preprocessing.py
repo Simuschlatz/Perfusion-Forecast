@@ -12,6 +12,7 @@ from concurrent.futures import ProcessPoolExecutor
 from time import time
 import json
 import nibabel as nib
+from tqdm import tqdm
 
 dataset_path = os.path.expanduser('~/Desktop/UniToBrain')
 
@@ -297,7 +298,7 @@ def filter_volume(args):
         filtered_volume[i] = apply_bilateral_filter(slice, sigma_space, sigma_intensity)
     return filtered_volume
 
-def filter_volume_seq(volume_seq, sigma_space=3, sigma_intensity=10):
+def filter_volume_seq(volume_seq, sigma_space=10, sigma_intensity=20):
 
     total_time = 0
     start_time = time()
@@ -783,100 +784,110 @@ def rigid_register_volume_sequence(volume_seq: np.ndarray,
         print("All registrations completed.")
     return registered_seq
 
-def get_volume(folder_path, 
-               window_params: tuple|str|None=(200, 400), 
-               filter=True,
-               extract_brain=True,
-               standardize=True,
-               correct_motion=True,
-               reference_index=3,
-               spatial_downsampling_factor=1, 
-               temporal_downsampling_factor=1,
-               slice_based=False,
-               verbose=True) -> np.ndarray:
-    """
-    Processes the DICOM files in a folder with folder path `folder_path`.
-    Each folder contains the entire perfusion volume sequence as DICOM datasets
-    The objective is to convert the sequence into a 4D array of CT volumes that are
-    in HU, windowed, brain-extracted, registered, filtered, standardized
+def symmetric_centering(
+    volume_seq: np.ndarray,
+    num_reference_slices: int = 3,
+    default_pixel_value: float = 0.0,
+    max_step = 4.0,
+    relaxation_factor = 0.5,
+    shrink_factors = [4, 1],
+    smoothing_sigmas = [2, 0],
+    lr = 0.1,
+    n_iters = 150,
+    gradient_magnitude_tolerance: float = 1e-5, 
+    min_step: float = 5e-3,
+    multi_res: bool = True,
+    verbose: bool = True,
+    ) -> np.ndarray:
 
-    Parameters:
-    - `window_params` (tuple | str | None, optional): Controls windowing. If None, no windowing is applied. If tuple, it is interpreted as (window_center, window_width). 
-    If str, it is interpreted as a windowing type. Defaults to (80, 160).
-    - `extract_brain` (bool, optional): Whether to extract the brain from the volume sequence. Defaults to True.
-    - `correct_motion` (bool, optional): Whether to correct motion in the volume sequence. Defaults to True.
-    - `reference_index` (int, optional): Index of the reference volume in the sequence to which other volumes will be registered. Defaults to 1.
-    - `spatial_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the spatial dimensions. Defaults to 4.
-    - `temporal_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the temporal dimension. Defaults to 1.
-    """
-    if verbose: print(f"Loading {folder_path}...")
-    # Check if folder exists
-    if not os.path.exists(folder_path):
-        raise FileNotFoundError(f"Folder {folder_path} not found")
+    if not isinstance(volume_seq, np.ndarray) or volume_seq.ndim != 4:
+        raise ValueError("Input 'volume_seq' must be a 4D NumPy array.")
 
-    datasets = load_dcm_datasets(folder_path)
+    T, D, H_dim, W_dim = volume_seq.shape
+    symmetrized_volume_seq = np.copy(volume_seq)
+    typed_default_pixel_value = volume_seq.dtype.type(default_pixel_value)
+    # start = D - D // 3
+    # end = min(start + num_reference_slices, D)
+    proj_slice = np.sum(volume_seq[0], axis=0)
     
-    if temporal_downsampling_factor < 1:
-        if verbose: print("Warning: temporal downsampling factor is less than 1, setting to 1")
-        temporal_downsampling_factor = 1
-    if spatial_downsampling_factor < 1:
-        if verbose: print("Warning: spatial downsampling factor is less than 1, setting to 1")
-        spatial_downsampling_factor = 1
+    if proj_slice.dtype != np.float32:
+        proj_slice = proj_slice.astype(np.float32)
 
-    if verbose: print(f"Processing {folder_path}...")
-    ds = datasets[0]
+    moving_sitk_image = sitk.GetImageFromArray(proj_slice)
+    moving_sitk_image.SetSpacing([1.0, 1.0])
 
-    # Get the spacing of the volume sequence
-    # slice_thickness = ds.SliceThickness
-    # pixel_spacing = ds.PixelSpacing
-    # print(slice_thickness, pixel_spacing)
+    mirrored_proj_slice = np.fliplr(proj_slice).copy()
+    fixed_sitk_image = sitk.GetImageFromArray(mirrored_proj_slice)
+    fixed_sitk_image.SetSpacing([1.0, 1.0])
 
-    # Assume that each volume in the sequence has the same dimensions
-    Y = int((datasets[-1].SliceLocation - ds.SliceLocation + 5) // ds.SliceThickness) # Height
-    Z, X = ds.Rows // spatial_downsampling_factor, ds.Columns // spatial_downsampling_factor # Depth, Width
-    n_volumes = len(datasets) // Y
-    T = max(1, n_volumes // temporal_downsampling_factor) # Temporal dimension
-    volume_seq = np.empty((T, Y, Z, X), dtype=np.float32)
-
-    for t in range(T):
-        for y in range(Y):
-            slice = datasets[t * Y * temporal_downsampling_factor + y].pixel_array
-            slice = convert_to_HU(slice, *get_conversion_params(ds))
-            if spatial_downsampling_factor > 1:
-                slice = downsample(slice, factor=spatial_downsampling_factor)
-            # if filter: slice = bilateral_filter(slice, 10, 10)
-            volume_seq[t, y] = slice
-
-    if extract_brain: # Calculate single brain mask for all volumes before windowing
-        volume_mask = get_3d_mask(volume_seq[reference_index])
-
-    if window_params is not None:
-        if type(window_params) == str:
-            window_center, window_width = get_window_from_type(window_params)
-        else:
-            window_center, window_width = window_params
-        volume_seq = apply_window(volume_seq, window_center, window_width)
-        if verbose: ic(volume_seq.max(), volume_seq.min(), volume_seq.dtype)
-
-    if filter: 
-        volume_seq = filter_volume_seq(volume_seq)
+    initial_transform = sitk.CenteredTransformInitializer(
+        fixed_sitk_image, moving_sitk_image, sitk.Euler2DTransform(),
+        sitk.CenteredTransformInitializerFilter.GEOMETRY
+    )
+    registration_method = sitk.ImageRegistrationMethod()
+    registration_method.SetMetricAsMeanSquares()
     
-    if correct_motion:
-        volume_seq = rigid_register_volume_sequence(volume_seq, reference_index=reference_index, verbose=verbose)
+    # Optimizer settings
+    registration_method.SetOptimizerAsRegularStepGradientDescent(
+        learningRate=lr,
+        maximumStepSizeInPhysicalUnits=max_step,
+        minStep=min_step,
+        numberOfIterations=n_iters,
+        gradientMagnitudeTolerance=gradient_magnitude_tolerance,
+        relaxationFactor=relaxation_factor,
+        estimateLearningRate=sitk.ImageRegistrationMethod.EachIteration
+    )
 
-    if extract_brain: # Apply brain mask to all registered volumes
-        volume_seq = apply_mask(volume_seq, volume_mask)
+    if multi_res:
+        registration_method.SetShrinkFactorsPerLevel(shrinkFactors=shrink_factors)
+        registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=smoothing_sigmas)
+        registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
 
-    if verbose: print(f"Done!")
-    # Standardization
-    if standardize:
-        if slice_based: # Standardize each slice sequence individually (for 2D video prediction)
-            for slice_idx in range(volume_seq.shape[1]):
-                volume_seq[:, slice_idx] = (volume_seq[:, slice_idx] - np.mean(volume_seq[:, slice_idx])) / np.std(volume_seq[:, slice_idx])
-        else: # Standardize the entire volume sequence (for 3D video prediction)
-            volume_seq = (volume_seq - np.mean(volume_seq)) / np.std(volume_seq)
-    return volume_seq
+    registration_method.SetInitialTransform(initial_transform)
+    registration_method.SetInterpolator(sitk.sitkLinear)
 
+    try:
+        final_transform_full = registration_method.Execute(fixed_sitk_image, moving_sitk_image)
+        transform = final_transform_full.GetParameters()
+        center_full = final_transform_full.GetCenter()
+
+        angle_half = transform[0] / 2.0
+        tx_half = transform[1] / 2.0
+        ty_half = transform[2] / 2.0
+
+        global_transform = sitk.Euler2DTransform()
+        global_transform.SetAngle(angle_half)
+        global_transform.SetTranslation((tx_half, ty_half))
+        global_transform.SetCenter((center_full[0], center_full[1]))
+    except Exception as e:
+        print(f"Error deriving transform: {e}. Returning original scan.")
+        return symmetrized_volume_seq # Original copied array
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetTransform(global_transform)
+    resampler.SetInterpolator(sitk.sitkLinear)
+
+    for t_idx in range(T):
+        for d_slice_idx in range(D): # Renamed to avoid confusion with SimpleITK's 'd'
+            current_slice_np = volume_seq[t_idx, d_slice_idx, :, :]
+            
+            # Convert slice to float32 for SITK processing, if not already
+            current_slice_sitk = sitk.GetImageFromArray(current_slice_np)
+            current_slice_sitk.SetSpacing([1.0, 1.0]) # Important: Ensure consistent physical space
+
+            # Set reference image for resampler to define output space
+            resampler.SetReferenceImage(current_slice_sitk)
+            resampler.SetDefaultPixelValue(float(typed_default_pixel_value))
+            try:
+                symmetrized_sitk_slice = resampler.Execute(current_slice_sitk)
+                symmetrized_slice_np = sitk.GetArrayFromImage(symmetrized_sitk_slice).astype(volume_seq.dtype, copy=False)
+                symmetrized_volume_seq[t_idx, d_slice_idx, :, :] = symmetrized_slice_np
+            except RuntimeError as e:
+                 print(f"Resampling failed for slice (t={t_idx}, d={d_slice_idx}): {e}. Using original slice for this instance.")
+                 # symmetrized_volume_seq already contains the original slice here
+
+    print("Global symmetry correction applied.")
+    return symmetrized_volume_seq
 
 
 def preprocess_scan(volume_seq: np.ndarray, 
@@ -887,23 +898,9 @@ def preprocess_scan(volume_seq: np.ndarray,
                correct_motion=True,
                reference_index=3,
                slice_based=False,
+               sigma_space=10,
+               sigma_intensity=20,
                verbose=True) -> np.ndarray:
-    """
-    Processes the DICOM files in a folder with folder path `folder_path`.
-    Each folder contains the entire perfusion volume sequence as DICOM datasets
-    The objective is to convert the sequence into a 4D array of CT volumes that are
-    in HU, windowed, brain-extracted, registered, filtered, standardized
-
-    Parameters:
-    - `window_params` (tuple | str | None, optional): Controls windowing. If None, no windowing is applied. If tuple, it is interpreted as (window_center, window_width). 
-    If str, it is interpreted as a windowing type. Defaults to (80, 160).
-    - `extract_brain` (bool, optional): Whether to extract the brain from the volume sequence. Defaults to True.
-    - `correct_motion` (bool, optional): Whether to correct motion in the volume sequence. Defaults to True.
-    - `reference_index` (int, optional): Index of the reference volume in the sequence to which other volumes will be registered. Defaults to 1.
-    - `spatial_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the spatial dimensions. Defaults to 4.
-    - `temporal_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the temporal dimension. Defaults to 1.
-    """
-
     if extract_brain: # Calculate single brain mask for all volumes before windowing
         volume_mask = get_3d_mask(volume_seq[reference_index])
 
@@ -933,6 +930,88 @@ def preprocess_scan(volume_seq: np.ndarray,
         else: # Standardize the entire volume sequence (for 3D video prediction)
             volume_seq = (volume_seq - np.mean(volume_seq)) / np.std(volume_seq)
     return volume_seq
+
+
+def get_volume(folder_path, 
+               window_params: tuple|str|None=(200, 400), 
+               filter=True,
+               extract_brain=True,
+               standardize=True,
+               correct_motion=True,
+               reference_index=3,
+               spatial_downsampling_factor=1, 
+               temporal_downsampling_factor=1,
+               slice_based=False,
+               sigma_space=10,
+               sigma_intensity=20,
+               verbose=True) -> np.ndarray:
+    """
+    Processes the DICOM files in a folder with folder path `folder_path`.
+    Each folder contains the entire perfusion volume sequence as DICOM datasets
+    The objective is to convert the sequence into a 4D array of CT volumes that are
+    in HU, windowed, brain-extracted, registered, filtered, standardized
+
+    Parameters:
+    - `window_params` (tuple | str | None, optional): Controls windowing. If None, no windowing is applied. If tuple, it is interpreted as (window_center, window_width). 
+    If str, it is interpreted as a windowing type. Defaults to (80, 160).
+    - `extract_brain` (bool, optional): Whether to extract the brain from the volume sequence. Defaults to True.
+    - `correct_motion` (bool, optional): Whether to correct motion in the volume sequence. Defaults to True.
+    - `reference_index` (int, optional): Index of the reference volume in the sequence to which other volumes will be registered. Defaults to 1.
+    - `spatial_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the spatial dimensions. Defaults to 4.
+    - `temporal_downsampling_factor` (int, optional): Factor by which to downsample the volume sequence in the temporal dimension. Defaults to 1.
+    """
+    if folder_path.endswith('.npy'):
+        volume_seq = np.load(folder_path)
+    else:
+        if verbose: print(f"Loading {folder_path}...")
+        # Check if folder exists
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Folder {folder_path} not found")
+
+        datasets = load_dcm_datasets(folder_path)
+        
+        if temporal_downsampling_factor < 1:
+            if verbose: print("Warning: temporal downsampling factor is less than 1, setting to 1")
+            temporal_downsampling_factor = 1
+        if spatial_downsampling_factor < 1:
+            if verbose: print("Warning: spatial downsampling factor is less than 1, setting to 1")
+            spatial_downsampling_factor = 1
+
+        if verbose: print(f"Processing {folder_path}...")
+        ds = datasets[0]
+
+        # Get the spacing of the volume sequence
+        # slice_thickness = ds.SliceThickness
+        # pixel_spacing = ds.PixelSpacing
+        # print(slice_thickness, pixel_spacing)
+
+        # Assume that each volume in the sequence has the same dimensions
+        Y = int((datasets[-1].SliceLocation - ds.SliceLocation + 5) // ds.SliceThickness) # Height
+        Z, X = ds.Rows // spatial_downsampling_factor, ds.Columns // spatial_downsampling_factor # Depth, Width
+        n_volumes = len(datasets) // Y
+        T = max(1, n_volumes // temporal_downsampling_factor) # Temporal dimension
+        volume_seq = np.empty((T, Y, Z, X), dtype=np.float32)
+
+        for t in range(T):
+            for y in range(Y):
+                slice = datasets[t * Y * temporal_downsampling_factor + y].pixel_array
+                slice = convert_to_HU(slice, *get_conversion_params(ds))
+                if spatial_downsampling_factor > 1:
+                    slice = downsample(slice, factor=spatial_downsampling_factor)
+                # if filter: slice = bilateral_filter(slice, 10, 10)
+                volume_seq[t, y] = slice
+
+    return preprocess_scan(volume_seq, 
+                           window_params=window_params, 
+                           filter=filter, 
+                           extract_brain=extract_brain, 
+                           standardize=standardize, 
+                           correct_motion=correct_motion, 
+                           reference_index=reference_index, 
+                           slice_based=slice_based, 
+                           sigma_space=sigma_space, 
+                           sigma_intensity=sigma_intensity, 
+                           verbose=verbose)
 
 def save_volume(volume, file_path: str="volume.npy", verbose=True):
     if not os.path.exists(os.path.dirname(file_path)):
@@ -965,7 +1044,7 @@ def sample_volumes(n_samples: int=8, random_selection: bool=False, first_index: 
 def save_selected_volumes(IDs: list, save_path: str='selected_volumes'):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    for ID in IDs:
+    for ID in tqdm(IDs):
         if os.path.exists(os.path.join(save_path, f'MOL-{ID}.npy')):
             print(f"Volume {ID} already exists")
             continue
@@ -998,16 +1077,45 @@ def quality_filtered(source_path: str='Experiments/PreprocessedData', save_path:
             save_volume(volume_seq, os.path.join(save_path, name))
             
 if __name__ == "__main__":
-    # IDs = ['001', '060', '061', '062', '094','096', '097', '101', '104', '105']
-    # save_selected_volumes(IDs)
-    # for reference_index in [1, 3]:
-    #     save_path = f'TestScans/Data/MOL-{reference_index}'
-    #     if not os.path.exists(save_path):
-    #         os.makedirs(save_path)
-    #     for folder_path in load_folder_paths(scan_size='small'):
-    #         path = os.path.join(save_path, folder_path.split('/')[-1] + '.npy')
-    #         if os.path.exists(path):
-    #             print(f"Volume {folder_path.split('/')[-1]} already exists")
-    # sample_volumes(n_samples=10, random_selection=False, first_index=0, scan_size='small', save_path='Experiments/Data3')
     # save_all_volumes(scan_size='small', save_path='Experiments/PreprocessedData')
-    quality_filtered(source_path='Experiments/PreprocessedData', save_path='Experiments/QualityFiltered', screening_file='Experiments/scan_screening.json')
+    # quality_filtered(source_path='Experiments/PreprocessedData', save_path='Experiments/QualityFiltered', screening_file='Experiments/scan_screening.json')
+
+    unitobrain_path = 'Experiments/UniToBrain' # The path to the loaded unitobrain arrays (unprocessed)
+
+    quality_filtered_path = os.listdir('Experiments/QualityFiltered')
+
+    # This was to load the raw DICOM data into numpy arrays from the unitobrain Dataset (only uncorrupted ones)
+    # if not os.path.exists(unitobrain_path):
+    #     os.makedirs(unitobrain_path)
+    # for scan_path in tqdm(quality_filtered_path):
+    #     ID = scan_path.split('/')[-1].split('.')[0]
+    #     path = os.path.join(dataset_path, ID)
+    #     save_path = os.path.join(unitobrain_path, ID)
+    #     if ID + '.npy' not in os.listdir(unitobrain_path):
+    #         v = get_volume(path, 
+    #                        spatial_downsampling_factor=2, 
+    #                        filter=False,
+    #                        window_params=None,
+    #                        extract_brain=False,
+    #                        standardize=False,
+    #                        correct_motion=False,
+    #                        reference_index=3,
+    #                        slice_based=False,
+    #                        verbose=False)
+    #         save_volume(v, save_path)
+
+    # ----------- Run this to preprocess the raw Data -----------
+    new_folder_path = 'Experiments/QualityFiltered_2' # Path to preprocessed data folder
+    if not os.path.exists(new_folder_path):
+        os.makedirs(new_folder_path)
+    # Only take cases that are in the quality filtered folder (screened for artifacts etc.)
+    for scan_path in tqdm(quality_filtered_path): 
+        ID = scan_path.split('/')[-1]
+        path = os.path.join(unitobrain_path, ID)
+        save_path = os.path.join(new_folder_path, ID)
+        if ID not in os.listdir(new_folder_path):
+            # This time without standardizing (normalize later)
+            v = get_volume(path, spatial_downsampling_factor=2, verbose=False, standardize=False)
+            v = symmetric_centering(v, verbose=False)
+            save_volume(v, save_path)
+
