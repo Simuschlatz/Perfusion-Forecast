@@ -1,0 +1,6 @@
+ipywidgets
+pytorch_lightning
+wandb
+rich
+kornia
+timm
