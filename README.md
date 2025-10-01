@@ -3,6 +3,8 @@
 ## Overview
 ChadCTP is a deep learning project that reduces radiation dose and scan time in CT Perfusion imaging for stroke diagnosis by predicting missing scans with 4D spatiotemporal models. Our methods achieve realistic perfusion maps and promising clinical results, paving the way for faster, safer, and more reliable stroke diagnostics.
 
+## Data Availability
+The Preprocessed data used for training, validation and test are not included in this repository but will be provided by the author upon justified request.
 ## Installation
 ### Clone this repository:
 ```bash
