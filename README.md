@@ -3,6 +3,9 @@
 ## Overview
 ChadCTP is a deep learning project that reduces radiation dose and scan time in CT Perfusion imaging for stroke diagnosis by predicting missing scans with 4D spatiotemporal models. Our methods achieve realistic perfusion maps and promising clinical results, paving the way for faster, safer, and more reliable stroke diagnostics.
 
+## Disclaimer
+Beware of the License.
+
 ## Data Availability
 The Preprocessed data used for training, validation and test are not included in this repository but will be provided by the author upon justified request.
 ## Installation
@@ -13,7 +16,7 @@ cd Perfusion-Forecast
 ```
 ## Usage with Docker
 
-### Build the Dockerfile
+### Build the Image
 ```bash
 docker build -t perfusion-forecast:latest .
 ```
