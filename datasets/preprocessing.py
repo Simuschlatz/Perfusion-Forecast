@@ -742,6 +742,9 @@ def rigid_register_volume_sequence(volume_seq: np.ndarray,
     registered_seq = np.empty_like(volume_seq)
     registered_seq[reference_index] = volume_seq[reference_index]
 
+    # This was an incomplete attempt at recursively registering each timestep to the
+    # preceding timestep to reduce transformation size
+    # Rendered unnecessary by learning rate improvements
     # if n_recursive is not None:
     #     sub_seq_len = volume_seq.shape[0] // len(reference_index)
     #     for pos, ref_idx in enumerate(reference_index):

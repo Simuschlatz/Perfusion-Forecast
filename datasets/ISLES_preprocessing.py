@@ -109,6 +109,7 @@ if __name__ == "__main__":
 
         preprocessed = preprocess_scan(v[indices], verbose=False)
 
+        # multiple samples of 16 slices from scans with more than 16 slices
         if v.shape[1] == 22:
             for i in range(2, v.shape[1]-16):
                 sub = preprocessed[:, i:i+16, :, :]

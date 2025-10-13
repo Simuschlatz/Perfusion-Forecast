@@ -121,7 +121,7 @@ class UNet4D(nn.Module):
         Returns:
             Output tensor of shape (B, T, output_frames, H, W)
         """
-        # Permute input from (B, T, C, D, H, W) to (B, C, T, D, H, W) for Conv3d
+        # Permute input from (B, T, C, D, H, W) to (B, C, T, D, H, W) for Conv4D
         x = x.permute(0, 2, 1, 3, 4, 5)
         
         # Encoder path

@@ -23,7 +23,7 @@ Dataset.file_meta -------------------------------
 (0008, 0032) Acquisition Time                    TM: '190951.002459'
 (0008, 0033) Content Time                        TM: '190954'
 (0008, 0050) Accession Number                    SH: '5514037583/37'
-(0008, 0060) Modality                            CS: 'CT'
+ssss(0008, 0060) Modality                            CS: 'CT'
 (0008, 0070) Manufacturer                        LO: 'GE MEDICAL SYSTEMS'
 (0008, 0080) Institution Name                    LO: 'RADIOLOGIA II PRONTO SOCCORSO'
 (0008, 0090) Referring Physician's Name          PN: 'UNKNOWN^UNKNOWN'
