@@ -1,7 +1,7 @@
 # Perfusion-Forecast: Reducing Radiation Dose and Scan Duration in CT Perfusion with Video Prediction Models
 
 ## Overview
-ChadCTP is a deep learning project that reduces radiation dose and scan time in CT Perfusion imaging for stroke diagnosis by predicting missing scans with 4D spatiotemporal models. Our methods achieve realistic perfusion maps and promising clinical results, paving the way for faster, safer, and more reliable stroke diagnostics.
+This repo contains part of an ongoing research project aimed at reducing radiation dose and scan time in CT Perfusion imaging for stroke diagnosis by predicting missing scans with 4D spatiotemporal models. Our methods achieve realistic perfusion maps and promising clinical results, paving the way for faster, safer, and more reliable stroke diagnostics.
 
 ## Disclaimer
 Beware of the License.
